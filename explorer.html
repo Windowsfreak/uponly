@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPOnly Explorer — Live Token Metrics & Transaction Ticker</title>
+    <meta name="description"
+        content="Track the price appreciation, historical vault volume, and live transactions of the UPOnly token on Solana.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #14f195;
+            /* Solana Green */
+            --secondary: #9945ff;
+            /* Solana Purple */
+            --accent: #00f0ff;
+            /* Neon Cyan */
+            --bg-dark: #070913;
+            --bg-card: #0c0f24;
+            --text-main: #f1f5f9;
+            --text-muted: #64748b;
+            --border: #181d39;
+            --glow-green: rgba(20, 241, 149, 0.15);
+            --glow-purple: rgba(153, 69, 255, 0.15);
+            --buy-color: #10b981; /* Standard Green */
+            --sell-color: #ef4444; /* Standard Red */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(153, 69, 255, 0.12) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(20, 241, 149, 0.12) 0%, transparent 40%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: #080a15;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-section h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.05em;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-section p {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: #091a18;
+            border: 1px solid #0d3826;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--primary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .status-badge:hover {
+            background: #0e2922;
+            transform: translateY(-1px);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--primary);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--primary);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px var(--primary); }
+            100% { transform: scale(0.9); opacity: 0.6; }
+        }
+
+        main {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* Hero Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .metric-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+        }
+
+        .metric-card.purple::before { background: var(--secondary); }
+        .metric-card.green::before { background: var(--primary); }
+        .metric-card.cyan::before { background: var(--accent); }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: white;
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+        }
+
+        .metric-subtext {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            display: block;
+        }
+
+        .positive-growth {
+            color: var(--primary);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* Dashboard Main Layout */
+        .dashboard-body {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Controls / Toggles */
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+            background: #05060b;
+            padding: 3px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .control-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .control-btn.active {
+            background: #181d39;
+            color: white;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 380px;
+            width: 100%;
+        }
+
+        /* Transaction List */
+        .tx-list-card {
+            grid-column: span 2;
+        }
+
+        @media (max-width: 1024px) {
+            .tx-list-card {
+                grid-column: span 1;
+            }
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            padding: 0.75rem 1rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid #10142b;
+            vertical-align: middle;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        tr.new-tx-row {
+            animation: highlight-new 2.5s ease-out;
+        }
+
+        @keyframes highlight-new {
+            0% { background: #0f3026; }
+            100% { background: transparent; }
+        }
+
+        .user-cell {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .identicon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            background: #111827;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border: 1px solid #1f2546;
+        }
+
+        .address-link {
+            color: var(--text-main);
+            text-decoration: none;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            transition: color 0.2s;
+        }
+
+        .address-link:hover {
+            color: var(--accent);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .badge.buy {
+            background: #102d24;
+            color: var(--buy-color);
+            border: 1px solid #134636;
+        }
+
+        .badge.sell {
+            background: #2b151b;
+            color: var(--sell-color);
+            border: 1px solid #4a1c22;
+        }
+
+        .badge.init {
+            background: #092036;
+            color: var(--accent);
+            border: 1px solid #005a6f;
+        }
+
+        .mono-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+
+        /* Predictor / Simulator Styles */
+        .simulator-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .sim-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .sim-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: #181d39;
+            border-radius: 3px;
+            -webkit-appearance: none;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        .simulation-result {
+            margin-top: 1rem;
+            padding: 1.25rem;
+            background: #081726;
+            border: 1px solid #005a6f;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .sim-price {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--accent);
+            font-family: 'JetBrains Mono', monospace;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+            margin: 0.25rem 0;
+        }
+
+        /* Pagination style */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .page-btn {
+            background: #10142b;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+
+        .page-btn:hover {
+            background: #1c2246;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        footer {
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+            margin-top: 4rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="logo-section">
+            <h1>UPOnly Explorer</h1>
+            <p>Mathematical Price Certainty Vault</p>
+        </div>
+        <button class="status-badge" id="syncBtn">
+            <span class="status-dot"></span>
+            <span id="syncText">SYNCED</span>
+        </button>
+    </header>
+
+    <main>
+        <!-- Metrics Grid -->
+        <section class="metrics-grid">
+            <div class="metric-card green">
+                <span class="metric-label">UPOnly Token Price</span>
+                <span class="metric-value" id="metricPrice">$1.6162 USDC</span>
+                <span class="metric-subtext">Price Growth: <span class="positive-growth" id="metricGrowth">+61.62%</span></span>
+            </div>
+            <div class="metric-card purple">
+                <span class="metric-label">Liquidity Pool Size</span>
+                <span class="metric-value" id="metricPool">$4,149,376</span>
+                <span class="metric-subtext">Net Deposited Capital</span>
+            </div>
+            <div class="metric-card cyan">
+                <span class="metric-label">Circulating Supply</span>
+                <span class="metric-value" id="metricSupply">2,567,444 UP</span>
+                <span class="metric-subtext">Backed by 90% Notional</span>
+            </div>
+            <div class="metric-card purple">
+                <span class="metric-label">Acceleration Factor</span>
+                <span class="metric-value" id="metricAccel">1.00x</span>
+                <span class="metric-subtext">Growth velocity indicator</span>
+            </div>
+        </section>
+
+        <!-- Charts & Simulator -->
+        <section class="dashboard-body">
+            <!-- Price History Chart Card -->
+            <div class="card">
+                <div class="card-header" style="flex-wrap: wrap; gap: 1rem; align-items: center;">
+                    <span class="card-title">Analytics Chart</span>
+                    <div class="controls" id="chartTabs">
+                        <button class="control-btn active" data-chart="price">Price & Vol</button>
+                        <button class="control-btn" data-chart="pool">Pool Assets</button>
+                        <button class="control-btn" data-chart="volume">Buys/Sells Vol</button>
+                        <button class="control-btn" data-chart="breakeven">Break-Even Hold</button>
+                    </div>
+                    <div class="controls" id="axisControls">
+                        <button class="control-btn active" id="axisTxBtn">TX Index</button>
+                        <button class="control-btn" id="axisDateBtn">Temporal</button>
+                    </div>
+                    <div class="controls" id="scaleControls">
+                        <button class="control-btn active" id="scaleLinear">LIN</button>
+                        <button class="control-btn" id="scaleLog">LOG</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Predictor / Simulator Sidebar -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Token appreciation simulator</span>
+                </div>
+                <div class="simulator-inputs">
+                    <div class="sim-input-group">
+                        <div class="sim-labels">
+                            <span>Simulate Buy Volume</span>
+                            <span id="simBuyLabel">$0 USDC</span>
+                        </div>
+                        <input type="range" id="simBuyRange" min="0" max="18" step="1" value="0">
+                    </div>
+                    <div class="sim-input-group">
+                        <div class="sim-labels">
+                            <span>Simulate Sell Volume</span>
+                            <span id="simSellLabel">$0 USDC</span>
+                        </div>
+                        <input type="range" id="simSellRange" min="0" max="18" step="1" value="0">
+                    </div>
+                    <div class="simulation-result">
+                        <span class="metric-label" style="margin-bottom: 0;">Predicted Token Price</span>
+                        <div class="sim-price" id="predictedPrice">$1.6321</div>
+                        <span class="metric-subtext" style="color: var(--primary);" id="predictedGrowth">+0.98% growth</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historical Ticker List Card -->
+            <div class="card tx-list-card">
+                <div class="card-header" style="flex-wrap: wrap; gap: 1rem; align-items: center; width: 100%;">
+                    <span class="card-title">Historical Transaction Ticker</span>
+                    <button class="page-btn" id="exportCsvBtn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; font-weight: 600; margin-left: auto;">Export CSV</button>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;" id="totalTxText">
+                        Total Transactions: -
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Block Time</th>
+                                <th>User</th>
+                                <th>Type</th>
+                                <th>USDC Net</th>
+                                <th>Leverage</th>
+                                <th>Uponly</th>
+                                <th>Price</th>
+                            </tr>
+                        </thead>
+                        <tbody id="txTableBody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination">
+                    <button class="page-btn" id="prevPageBtn" disabled>Previous</button>
+                    <button class="page-btn" id="nextPageBtn">Next</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        All historical calculations verified dynamically from Solana Mainnet-Beta blockchain state.
+    </footer>
+
+    <script>
+        // Global variables
+        let chartInstance = null;
+        let chartScale = 'linear';
+        let chartXScale = 'tx';
+        let currentLimit = 50;
+        let currentOffset = 0;
+        let totalTransactions = 0;
+        let basePool = 1000000.0;
+        let baseSupply = 1000000.0;
+        let currentPrice = 1.0;
+
+        // Fetch Stats
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                if (!response.ok) throw new Error("Stats fetch failed");
+                const stats = await response.json();
+                
+                document.getElementById('metricPrice').textContent = `$${stats.price.toFixed(4)} USDC`;
+                document.getElementById('metricGrowth').textContent = `+${stats.priceGrowthPercent.toFixed(2)}%`;
+                document.getElementById('metricPool').textContent = `$${stats.poolSize.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                document.getElementById('metricSupply').textContent = `${stats.circulatingSupply.toLocaleString(undefined, { maximumFractionDigits: 0 })} UP`;
+                document.getElementById('metricAccel').textContent = `${stats.accelerationFactor.toFixed(2)}x`;
+                document.getElementById('totalTxText').textContent = `Total Transactions: ${stats.totalTransactions}`;
+                
+                basePool = stats.poolSize;
+                baseSupply = stats.circulatingSupply;
+                currentPrice = stats.price;
+                
+                updateSimulation();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Fetch History for Chart
+        async function fetchHistoryForChart() {
+            try {
+                // Fetch all history to draw chart (up to 1500 elements)
+                const response = await fetch('/api/history?limit=1500&order=asc');
+                if (!response.ok) throw new Error("History fetch failed");
+                const data = await response.json();
+                
+                const labels = data.map(tx => tx.dateTime);
+                const prices = data.map(tx => tx.calculatedPrice);
+                
+                updateChart(labels, prices);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Fetch Table Data
+        async function fetchTableData() {
+            try {
+                const response = await fetch(`/api/history?limit=${currentLimit}&offset=${currentOffset}`);
+                if (!response.ok) throw new Error("Table history fetch failed");
+                const data = await response.json();
+                
+                const tableBody = document.getElementById('txTableBody');
+                tableBody.innerHTML = '';
+                
+                data.forEach(tx => {
+                    const row = createTableRow(tx);
+                    tableBody.appendChild(row);
+                });
+                
+                document.getElementById('prevPageBtn').disabled = (currentOffset === 0);
+                document.getElementById('nextPageBtn').disabled = (data.length < currentLimit);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Duration Formatter
+        function formatDuration(days) {
+            if (!days || days <= 0) return '';
+            if (days < 1/24) {
+                const mins = Math.round(days * 24 * 60);
+                return `Held ${mins}m`;
+            }
+            if (days < 1) {
+                const hours = Math.round(days * 24);
+                return `Held ${hours}h`;
+            }
+            return `Held ${days.toFixed(1)}d`;
+        }
+
+        // Create HTML Row
+        function createTableRow(tx, isNew = false) {
+            const tr = document.createElement('tr');
+            if (isNew) {
+                tr.classList.add('new-tx-row');
+            }
+            
+            let badgeClass = 'badge buy';
+            let typeText = 'BUY';
+            let isOutflow = false; // true if cash goes out of vault (sell/unlock), meaning user gets paid!
+
+            if (tx.instructionType === 'EarlyCloseLeverage') {
+                badgeClass = 'badge sell';
+                typeText = 'CLOSE';
+                isOutflow = true;
+            } else if (tx.instructionType === 'EarlyUnlockTokens') {
+                badgeClass = 'badge sell';
+                typeText = 'UNLOCK';
+                isOutflow = true;
+            } else if (tx.instructionType === 'BuyAndLockToken') {
+                badgeClass = 'badge buy';
+                typeText = 'LOCK';
+            } else if (tx.instructionType === 'Initialize') {
+                badgeClass = 'badge init';
+                typeText = 'INIT';
+            }
+            
+            const identiconSVG = getIdenticonSVG(tx.userAddress);
+            const userShort = tx.userAddress.slice(0, 4) + '...' + tx.userAddress.slice(-4);
+            const SolscanUrl = `https://solscan.io/tx/${tx.signature}`;
+            
+            let durationHTML = '';
+            if (isOutflow && tx.durationDays > 0) {
+                durationHTML = `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; font-weight: 500;">${formatDuration(tx.durationDays)}</div>`;
+            }
+
+            let usdcNetHTML = '';
+            if (isOutflow && tx.buySignature !== "") {
+                const purchasePrice = tx.usdcAmount - tx.profitAbsolute;
+                const profitColor = tx.profitAbsolute >= 0 ? 'var(--buy-color)' : 'var(--sell-color)';
+                const profitPrefix = tx.profitAbsolute >= 0 ? '+' : '';
+                const roiPrefix = tx.profitPercent >= 0 ? '+' : '';
+                usdcNetHTML = `
+                    <span style="color: ${profitColor}; font-weight: 700; font-size: 0.95rem;">
+                        ${profitPrefix}$${tx.profitAbsolute.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; font-weight: 500;">
+                        $${purchasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${roiPrefix}${tx.profitPercent.toFixed(1)}%)
+                    </div>
+                `;
+            } else {
+                // Buy or Init (no sign, grey color)
+                usdcNetHTML = `<span style="color: var(--text-muted); font-weight: 500;">$${tx.usdcAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
+            }
+
+            tr.innerHTML = `
+                <td class="mono-val" style="color: var(--text-muted); font-size: 0.8rem;">${tx.dateTime}</td>
+                <td>
+                    <div class="user-cell">
+                        <div class="identicon">${identiconSVG}</div>
+                        <a href="${SolscanUrl}" target="_blank" class="address-link">${userShort}</a>
+                    </div>
+                </td>
+                <td>
+                    <div><span class="${badgeClass}">${typeText}</span></div>
+                    ${durationHTML}
+                </td>
+                <td class="mono-val">
+                    ${usdcNetHTML}
+                </td>
+                <td class="mono-val" style="color: var(--text-muted); font-size: 0.85rem;">
+                    ${tx.leverage}x
+                </td>
+                <td class="mono-val" style="${isOutflow ? 'color: var(--sell-color);' : 'color: var(--buy-color);'}">
+                    ${isOutflow ? '-' : '+'}${tx.uponlyAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </td>
+                <td class="mono-val" style="color: white; font-weight: 700;">$${tx.calculatedPrice.toFixed(4)}</td>
+            `;
+            return tr;
+        }
+
+        // SVG Identicon Generator (Self-contained)
+        function getIdenticonSVG(address) {
+            // Generate a simple hash from the address string
+            let hash = 0;
+            for (let i = 0; i < address.length; i++) {
+                hash = address.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            
+            // Generate distinct colors based on hash
+            const c1_h = Math.abs(hash % 360);
+            const c1_s = 60 + Math.abs((hash >> 8) % 30);
+            const c1_l = 40 + Math.abs((hash >> 16) % 20);
+            const color1 = `hsl(${c1_h}, ${c1_s}%, ${c1_l}%)`;
+            
+            const offset = 120 + Math.abs((hash >> 20) % 120);
+            const c2_h = (c1_h + offset) % 360;
+            const c2_s = 60 + Math.abs((hash >> 24) % 30);
+            const c2_l = 40 + Math.abs((hash >> 28) % 20);
+            const color2 = `hsl(${c2_h}, ${c2_s}%, ${c2_l}%)`;
+            
+            // Build simple SVG grids (4x4 checkerboard style)
+            let rects = '';
+            for (let x = 0; x < 4; x++) {
+                for (let y = 0; y < 4; y++) {
+                    const bitIndex = (x * 4 + y) % 32;
+                    const fill = ((hash >> bitIndex) & 1) === 1 ? color1 : color2;
+                    rects += `<rect x="${x*7}" y="${y*7}" width="7" height="7" fill="${fill}" />`;
+                }
+            }
+            
+            return `<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+        }
+        // Process data points and daily grouping
+        let rawTxs = [];
+        let chartDataPoints = [];
+        let dailyVolumeData = {};
+        let dailyPoints = [];
+
+        function processHistoricalData(data) {
+            let pool = 1.0;
+            let supply = 1.0;
+            let loans = 0.0;
+            let cash = 1.0;
+            
+            let openPositions = {};
+            let cumBuyUSDC = 0.0;
+            let cumSellUSDC = 0.0;
+            
+            let dailyVolume = {};
+            
+            // Sort ascending
+            const sorted = [...data].sort((a, b) => a.blockTime - b.blockTime || a.slot - b.slot);
+            
+            const points = [];
+            
+            sorted.forEach((tx, index) => {
+                const dateKey = tx.dateTime.split(' ')[0];
+                if (!dailyVolume[dateKey]) {
+                    dailyVolume[dateKey] = { buys: 0, sells: 0 };
+                }
+                
+                let isBuy = false;
+                if (tx.instructionType === 'LeverageBuy') {
+                    const lev = parseFloat(tx.leverage);
+                    const deposit = tx.usdcAmount;
+                    const vaultInflow = deposit * (1.0 - lev * 0.0275);
+                    const loan = deposit * (lev - 1);
+                    
+                    cash += vaultInflow;
+                    loans += loan;
+                    pool = cash + loans;
+                    supply += tx.uponlyAmount;
+                    
+                    cumBuyUSDC += deposit;
+                    dailyVolume[dateKey].buys += deposit;
+                    isBuy = true;
+                    
+                    const key = tx.uponlyAmount.toFixed(8);
+                    openPositions[key] = { deposit, loan, time: tx.blockTime };
+                    
+                } else if (tx.instructionType === 'BuyAndLockToken') {
+                    cash += tx.usdcAmount;
+                    pool = cash + loans;
+                    supply += tx.uponlyAmount;
+                    
+                    cumBuyUSDC += tx.usdcAmount;
+                    dailyVolume[dateKey].buys += tx.usdcAmount;
+                    isBuy = true;
+                    
+                    const key = tx.uponlyAmount.toFixed(8);
+                    openPositions[key] = { deposit: tx.usdcAmount, loan: 0.0, time: tx.blockTime };
+                    
+                } else if (tx.instructionType === 'EarlyCloseLeverage') {
+                    const key = tx.uponlyAmount.toFixed(8);
+                    let loan = 0.0;
+                    if (openPositions[key]) {
+                        loan = openPositions[key].loan;
+                        delete openPositions[key];
+                    }
+                    
+                    cash -= tx.notionalAmount;
+                    loans -= loan;
+                    pool = cash + loans;
+                    supply -= tx.uponlyAmount;
+                    
+                    cumSellUSDC += tx.usdcAmount;
+                    dailyVolume[dateKey].sells += tx.usdcAmount;
+                    
+                } else if (tx.instructionType === 'EarlyUnlockTokens') {
+                    cash -= tx.notionalAmount;
+                    pool = cash + loans;
+                    supply -= tx.uponlyAmount;
+                    
+                    cumSellUSDC += tx.usdcAmount;
+                    dailyVolume[dateKey].sells += tx.usdcAmount;
+                }
+                
+                const currentPrice = pool / supply;
+                
+                let breakEvenTime = -1;
+                for (let j = index - 1; j >= 0; j--) {
+                    if (points[j] && points[j].price <= 0.81 * currentPrice) {
+                        breakEvenTime = points[j].time;
+                        break;
+                    }
+                }
+                let breakEvenDays = 0.0;
+                if (breakEvenTime !== -1) {
+                    breakEvenDays = (tx.blockTime - breakEvenTime) / 86400.0;
+                }
+                
+                points.push({
+                    time: tx.blockTime,
+                    dateTime: tx.dateTime,
+                    price: currentPrice,
+                    pool: pool,
+                    supply: supply,
+                    loans: loans,
+                    cash: cash,
+                    cumBuy: cumBuyUSDC,
+                    cumSell: cumSellUSDC,
+                    breakEvenDays: breakEvenDays,
+                    dateKey: dateKey,
+                    txVol: tx.usdcAmount,
+                    isBuy: isBuy
+                });
+            });
+            
+            chartDataPoints = points;
+            dailyVolumeData = dailyVolume;
+        }
+
+        function aggregateDailyData() {
+            const temp = {};
+            chartDataPoints.forEach(pt => {
+                temp[pt.dateKey] = pt;
+            });
+            
+            const sortedDays = Object.keys(temp).sort();
+            
+            dailyPoints = sortedDays.map(day => {
+                const lastPt = temp[day];
+                const vol = dailyVolumeData[day] || { buys: 0, sells: 0 };
+                const net = vol.buys - vol.sells;
+                return {
+                    day: day,
+                    price: lastPt.price,
+                    pool: lastPt.pool,
+                    supply: lastPt.supply,
+                    loans: lastPt.loans,
+                    cash: lastPt.cash,
+                    cumBuy: lastPt.cumBuy,
+                    cumSell: lastPt.cumSell,
+                    breakEvenDays: lastPt.breakEvenDays,
+                    buyVolume: vol.buys,
+                    sellVolume: vol.sells,
+                    netVolume: net
+                };
+            });
+        }
+
+        // Draw dynamic Chart
+        let activeChartTab = 'price';
+        function updateChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            
+            // Robustly check for and destroy any existing chart bound to this canvas
+            const existingChart = Chart.getChart("historyChart");
+            if (existingChart) {
+                existingChart.destroy();
+            }
+            
+            const pointsSource = chartXScale === 'tx' ? chartDataPoints : dailyPoints;
+            
+            const labels = pointsSource.map((pt, idx) => {
+                if (chartXScale === 'tx') {
+                    return pt.dateTime.split(' ')[0] + ' #' + (idx + 1);
+                }
+                return pt.day;
+            });
+
+            let datasets = [];
+            let scales = {
+                x: {
+                    grid: { display: false },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'Outfit', size: 10 },
+                        maxTicksLimit: chartXScale === 'tx' ? 12 : 20
+                    }
+                }
+            };
+            
+            if (activeChartTab === 'price') {
+                const prices = pointsSource.map(pt => pt.price);
+                let volumeHeights, volumeColors, volLabel;
+                
+                if (chartXScale === 'tx') {
+                    volumeHeights = pointsSource.map(pt => pt.txVol);
+                    volumeColors = pointsSource.map(pt => pt.isBuy ? 'rgba(20, 241, 149, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+                    volLabel = 'Transaction Vol';
+                } else {
+                    volumeHeights = pointsSource.map(pt => pt.buyVolume + pt.sellVolume);
+                    volumeColors = pointsSource.map(pt => pt.netVolume >= 0 ? 'rgba(20, 241, 149, 0.4)' : 'rgba(239, 68, 68, 0.4)');
+                    volLabel = 'Daily Volume';
+                }
+                
+                datasets = [
+                    {
+                        type: 'line',
+                        label: 'Price (USDC)',
+                        data: prices,
+                        borderColor: '#14f195',
+                        borderWidth: 2.5,
+                        pointRadius: 0,
+                        tension: 0.15,
+                        yAxisID: 'yPrice'
+                    },
+                    {
+                        type: 'bar',
+                        label: volLabel,
+                        data: volumeHeights,
+                        backgroundColor: volumeColors,
+                        borderWidth: 0,
+                        barPercentage: 0.65,
+                        yAxisID: 'yVolume'
+                    }
+                ];
+                
+                scales.yPrice = {
+                    type: chartScale,
+                    position: 'left',
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'JetBrains Mono', size: 11 },
+                        callback: value => '$' + value.toFixed(4)
+                    }
+                };
+                
+                scales.yVolume = {
+                    position: 'right',
+                    grid: { display: false },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'JetBrains Mono', size: 9 },
+                        callback: value => '$' + (value >= 1e3 ? (value / 1e3).toFixed(0) + 'k' : value)
+                    }
+                };
+                
+            } else if (activeChartTab === 'pool') {
+                datasets = [
+                    {
+                        label: 'Total Pool Size',
+                        data: pointsSource.map(pt => pt.pool),
+                        borderColor: '#00f0ff',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Vault Cash',
+                        data: pointsSource.map(pt => pt.cash),
+                        borderColor: '#14f195',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Outstanding Loans',
+                        data: pointsSource.map(pt => pt.loans),
+                        borderColor: '#9945ff',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.1
+                    }
+                ];
+                
+                scales.y = {
+                    type: chartScale,
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'JetBrains Mono', size: 11 },
+                        callback: value => '$' + (value >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : (value / 1e3).toFixed(0) + 'k')
+                    }
+                };
+                
+            } else if (activeChartTab === 'volume') {
+                datasets = [
+                    {
+                        label: 'Cum Buys Spent (USDC)',
+                        data: pointsSource.map(pt => pt.cumBuy),
+                        borderColor: '#14f195',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Cum Sells Paid (USDC)',
+                        data: pointsSource.map(pt => pt.cumSell),
+                        borderColor: '#ef4444',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1
+                    }
+                ];
+                
+                scales.y = {
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'JetBrains Mono', size: 11 },
+                        callback: value => '$' + (value >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : (value / 1e3).toFixed(0) + 'k')
+                    }
+                };
+                
+            } else if (activeChartTab === 'breakeven') {
+                datasets = [
+                    {
+                        label: 'Breakeven Holding Period (Days)',
+                        data: pointsSource.map(pt => pt.breakEvenDays),
+                        borderColor: '#00f0ff',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1,
+                        fill: true,
+                        backgroundColor: 'rgba(0, 240, 255, 0.04)'
+                    }
+                ];
+                
+                scales.y = {
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                    ticks: {
+                        color: '#64748b',
+                        font: { family: 'JetBrains Mono', size: 11 },
+                        callback: value => value.toFixed(1) + ' days'
+                    }
+                };
+            }
+            
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: (activeChartTab !== 'breakeven' && activeChartTab !== 'price'),
+                            labels: {
+                                color: '#64748b',
+                                font: { family: 'Outfit', size: 11 }
+                            }
+                        }
+                    },
+                    scales: scales
+                }
+            });
+        }
+
+        const SLIDER_STEPS = [
+            0,
+            1000, 2000, 5000,
+            10000, 20000, 50000,
+            100000, 200000, 500000,
+            1000000, 2000000, 5000000,
+            10000000, 20000000, 50000000,
+            100000000, 200000000, 500000000
+        ];
+
+        // Update Simulator logic (Correct math matching asset pool growth)
+        function updateSimulation() {
+            const buyIndex = parseInt(document.getElementById('simBuyRange').value);
+            const sellIndex = parseInt(document.getElementById('simSellRange').value);
+            const simulatedBuy = SLIDER_STEPS[buyIndex];
+            const simulatedSell = SLIDER_STEPS[sellIndex];
+            
+            document.getElementById('simBuyLabel').textContent = `$${simulatedBuy.toLocaleString()} USDC`;
+            document.getElementById('simSellLabel').textContent = `$${simulatedSell.toLocaleString()} USDC`;
+            
+            // Simulation logic matching the buy/sell fee formula:
+            let simPool = basePool;
+            let simSupply = baseSupply;
+            
+            // Buy transaction logic:
+            if (simulatedBuy > 0) {
+                // User buys with 5x leverage. Added pool assets = buy_deposit * 5 * 97.25%
+                simPool += simulatedBuy * 5.0 * 0.9725;
+                // Added supply = (buy_deposit * 5 * 90%) / currentPrice
+                simSupply += (simulatedBuy * 5.0 * 0.9) / currentPrice;
+            }
+            
+            // Sell transaction logic:
+            if (simulatedSell > 0) {
+                // User closes nominal position. Subtracted pool assets = nominal * 92.75%
+                simPool -= simulatedSell * 0.9275;
+                // Burned supply = nominal / currentPrice
+                simSupply -= simulatedSell / currentPrice;
+            }
+            
+            const predictedPrice = simPool / simSupply;
+            const percentDiff = ((predictedPrice - currentPrice) / currentPrice) * 100.0;
+            
+            document.getElementById('predictedPrice').textContent = `$${predictedPrice.toFixed(4)}`;
+            
+            const growthText = document.getElementById('predictedGrowth');
+            if (percentDiff >= 0) {
+                growthText.textContent = `+${percentDiff.toFixed(2)}% growth`;
+                growthText.style.color = 'var(--primary)';
+            } else {
+                growthText.textContent = `${percentDiff.toFixed(2)}% drop`;
+                growthText.style.color = 'var(--sell-color)';
+            }
+        }
+
+        // Live Event Source (SSE)
+        function initLiveSync() {
+            const eventSource = new EventSource('/api/live');
+            
+            eventSource.onmessage = function(event) {
+                const tx = JSON.parse(event.data);
+                console.log("Live transaction received:", tx);
+                
+                // Prepend new row to table
+                const tableBody = document.getElementById('txTableBody');
+                const row = createTableRow(tx, true);
+                tableBody.insertBefore(row, tableBody.firstChild);
+                
+                // If table is longer than limit, trim
+                if (tableBody.children.length > currentLimit) {
+                    tableBody.removeChild(tableBody.lastChild);
+                }
+                
+                // Refresh statistics & chart
+                fetchStats();
+                fetchHistoryForChart();
+            };
+            
+            eventSource.onerror = function() {
+                document.getElementById('syncText').textContent = "DISCONNECTED";
+                document.getElementById('syncBtn').style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                document.getElementById('syncBtn').style.color = 'var(--sell-color)';
+                document.querySelector('.status-dot').style.backgroundColor = 'var(--sell-color)';
+            };
+            
+            eventSource.onopen = function() {
+                document.getElementById('syncText').textContent = "LIVE SYNCED";
+                document.getElementById('syncBtn').style.borderColor = 'rgba(20, 241, 149, 0.2)';
+                document.getElementById('syncBtn').style.color = 'var(--primary)';
+                document.querySelector('.status-dot').style.backgroundColor = 'var(--primary)';
+            };
+        }
+
+        // Fetch History for Chart
+        async function fetchHistoryForChart() {
+            try {
+                // Fetch all history to draw chart (up to 1500 elements)
+                const response = await fetch('/api/history?limit=1500&order=asc');
+                if (!response.ok) throw new Error("History fetch failed");
+                const data = await response.json();
+                
+                processHistoricalData(data);
+                aggregateDailyData();
+                updateChart();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Event Listeners
+        document.getElementById('simBuyRange').addEventListener('input', updateSimulation);
+        document.getElementById('simSellRange').addEventListener('input', updateSimulation);
+        
+        document.querySelectorAll('#chartTabs .control-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('#chartTabs .control-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                activeChartTab = e.target.dataset.chart;
+                
+                const scaleControls = document.getElementById('scaleControls');
+                const axisControls = document.getElementById('axisControls');
+                if (activeChartTab === 'price' || activeChartTab === 'pool') {
+                    scaleControls.style.display = 'flex';
+                } else {
+                    scaleControls.style.display = 'none';
+                    chartScale = 'linear';
+                    document.getElementById('scaleLinear').classList.add('active');
+                    document.getElementById('scaleLog').classList.remove('active');
+                }
+                
+                updateChart();
+            });
+        });
+
+        document.getElementById('axisTxBtn').addEventListener('click', () => {
+            chartXScale = 'tx';
+            document.getElementById('axisTxBtn').classList.add('active');
+            document.getElementById('axisDateBtn').classList.remove('active');
+            updateChart();
+        });
+
+        document.getElementById('axisDateBtn').addEventListener('click', () => {
+            chartXScale = 'date';
+            document.getElementById('axisDateBtn').classList.add('active');
+            document.getElementById('axisTxBtn').classList.remove('active');
+            updateChart();
+        });
+
+        document.getElementById('scaleLinear').addEventListener('click', () => {
+            chartScale = 'linear';
+            document.getElementById('scaleLinear').classList.add('active');
+            document.getElementById('scaleLog').classList.remove('active');
+            updateChart();
+        });
+        
+        document.getElementById('scaleLog').addEventListener('click', () => {
+            chartScale = 'logarithmic';
+            document.getElementById('scaleLog').classList.add('active');
+            document.getElementById('scaleLinear').classList.remove('active');
+            updateChart();
+        });
+
+        document.getElementById('prevPageBtn').addEventListener('click', () => {
+            if (currentOffset >= currentLimit) {
+                currentOffset -= currentLimit;
+                fetchTableData();
+            }
+        });
+
+        document.getElementById('nextPageBtn').addEventListener('click', () => {
+            currentOffset += currentLimit;
+            fetchTableData();
+        });
+
+        document.getElementById('syncBtn').addEventListener('click', async () => {
+            const syncText = document.getElementById('syncText');
+            syncText.textContent = "SYNCING...";
+            try {
+                const response = await fetch('/api/sync', { method: 'POST' });
+                const res = await response.json();
+                if (res.success) {
+                    setTimeout(() => {
+                        syncText.textContent = "SYNC STARTED";
+                        setTimeout(() => syncText.textContent = "LIVE SYNCED", 2000);
+                    }, 1000);
+                }
+            } catch (err) {
+                syncText.textContent = "SYNC ERROR";
+            }
+        });
+
+        // Export CSV listener
+        document.getElementById('exportCsvBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('exportCsvBtn');
+            const originalText = btn.textContent;
+            btn.textContent = "EXPORTING...";
+            btn.disabled = true;
+            try {
+                const response = await fetch('/api/history?limit=1500&order=desc');
+                if (!response.ok) throw new Error("Fetch failed");
+                const data = await response.json();
+                
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += "Block Time,User,Type,USDC Net,Leverage,Uponly,Price,Signature\n";
+                
+                data.forEach(tx => {
+                    const row = [
+                        tx.dateTime,
+                        tx.userAddress,
+                        tx.instructionType,
+                        tx.usdcAmount,
+                        tx.leverage,
+                        tx.uponlyAmount,
+                        tx.calculatedPrice,
+                        tx.signature
+                    ].map(val => `"${val}"`).join(",");
+                    csvContent += row + "\n";
+                });
+                
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "uponly_transactions.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                btn.textContent = originalText;
+            } catch (err) {
+                console.error("Export failed:", err);
+                btn.textContent = "EXPORT ERROR";
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Initialize Page
+        window.addEventListener('load', () => {
+            fetchStats();
+            fetchHistoryForChart();
+            fetchTableData();
+            initLiveSync();
+        });
+    </script>
+</body>
+
+</html>

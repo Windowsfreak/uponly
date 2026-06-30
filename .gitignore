@@ -1,0 +1,8 @@
+# Binaries
+uponly
+
+# Databases
+uponly.db
+uponly.db-journal
+uponly.db-wal
+uponly.db-shm
