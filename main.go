@@ -1144,18 +1144,60 @@ func fetchSignaturesFromRPC(address string, before string) []RPCSubSignature {
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post("https://api.mainnet-beta.solana.com", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		return nil
+	
+	retries := 5
+	backoff := 500 * time.Millisecond
+	
+	for attempt := 0; attempt < retries; attempt++ {
+		resp, err := http.Post("https://api.mainnet-beta.solana.com", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		if resp.StatusCode == 429 {
+			resp.Body.Close()
+			log.Printf("RPC Rate limited (429) fetching signatures before %s. Retrying...", before)
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		var jsonErr struct {
+			Error struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.Unmarshal(respBody, &jsonErr)
+		if jsonErr.Error.Code != 0 {
+			log.Printf("RPC Error %d (%s) fetching signatures. Retrying...", jsonErr.Error.Code, jsonErr.Error.Message)
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		var res struct {
+			Result []RPCSubSignature `json:"result"`
+		}
+		if err := json.Unmarshal(respBody, &res); err == nil {
+			return res.Result
+		}
+		
+		time.Sleep(backoff)
+		backoff *= 2
 	}
-	defer resp.Body.Close()
-
-	var res struct {
-		Result []RPCSubSignature `json:"result"`
-	}
-	respBody, _ := io.ReadAll(resp.Body)
-	json.Unmarshal(respBody, &res)
-	return res.Result
+	
+	return nil
 }
 
 func fetchTransactionDetailFromRPC(sig string) *RawTxJSON {
@@ -1166,23 +1208,67 @@ func fetchTransactionDetailFromRPC(sig string) *RawTxJSON {
 		"params": []interface{}{
 			sig,
 			map[string]interface{}{
-				"encoding":                           "jsonParsed",
+				"encoding":                       "jsonParsed",
 				"maxSupportedTransactionVersion": 0,
 			},
 		},
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post("https://api.mainnet-beta.solana.com", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		return nil
+	
+	retries := 5
+	backoff := 500 * time.Millisecond
+	
+	for attempt := 0; attempt < retries; attempt++ {
+		resp, err := http.Post("https://api.mainnet-beta.solana.com", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		if resp.StatusCode == 429 {
+			resp.Body.Close()
+			log.Printf("RPC Rate limited (429) fetching transaction %s. Retrying in %v...", sig, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		// Check JSON RPC Error
+		var jsonErr struct {
+			Error struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.Unmarshal(respBody, &jsonErr)
+		if jsonErr.Error.Code != 0 || strings.Contains(strings.ToLower(jsonErr.Error.Message), "rate limit") || strings.Contains(strings.ToLower(jsonErr.Error.Message), "too many requests") {
+			log.Printf("RPC Error %d (%s) fetching transaction %s. Retrying in %v...", jsonErr.Error.Code, jsonErr.Error.Message, sig, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		
+		var res struct {
+			Result *RawTxJSON `json:"result"`
+		}
+		if err := json.Unmarshal(respBody, &res); err == nil && res.Result != nil {
+			return res.Result
+		}
+		
+		time.Sleep(backoff)
+		backoff *= 2
 	}
-	defer resp.Body.Close()
-
-	var res struct {
-		Result *RawTxJSON `json:"result"`
-	}
-	respBody, _ := io.ReadAll(resp.Body)
-	json.Unmarshal(respBody, &res)
-	return res.Result
+	
+	log.Printf("Failed to fetch transaction detail for %s after %d attempts", sig, retries)
+	return nil
 }
