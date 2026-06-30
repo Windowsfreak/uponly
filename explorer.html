@@ -1177,34 +1177,73 @@
             100000000, 200000000, 500000000
         ];
 
-        // Update Simulator logic (Correct math matching asset pool growth)
+        // Update Simulator logic (20 alternating buy/sell steps with FIFO position tracking)
         function updateSimulation() {
             const buyIndex = parseInt(document.getElementById('simBuyRange').value);
             const sellIndex = parseInt(document.getElementById('simSellRange').value);
-            const simulatedBuy = SLIDER_STEPS[buyIndex];
-            const simulatedSell = SLIDER_STEPS[sellIndex];
+            const simulatedBuy = SLIDER_STEPS[buyIndex];   // Nominal Buy Volume (Position Size)
+            const simulatedSell = SLIDER_STEPS[sellIndex]; // Nominal Sell Volume (Position Size)
             
             document.getElementById('simBuyLabel').textContent = `$${simulatedBuy.toLocaleString()} USDC`;
             document.getElementById('simSellLabel').textContent = `$${simulatedSell.toLocaleString()} USDC`;
             
-            // Simulation logic matching the buy/sell fee formula:
             let simPool = basePool;
             let simSupply = baseSupply;
             
-            // Buy transaction logic:
-            if (simulatedBuy > 0) {
-                // User buys with 5x leverage. Added pool assets = buy_deposit * 5 * 97.25%
-                simPool += simulatedBuy * 5.0 * 0.9725;
-                // Added supply = (buy_deposit * 5 * 90%) / currentPrice
-                simSupply += (simulatedBuy * 5.0 * 0.9) / currentPrice;
-            }
+            // Track open position blocks in the simulation.
+            // Initialize with a single baseline position representing current circulation.
+            let positions = [
+                { nominal: baseSupply * currentPrice / 0.9, upo: baseSupply }
+            ];
             
-            // Sell transaction logic:
-            if (simulatedSell > 0) {
-                // User closes nominal position. Subtracted pool assets = nominal * 92.75%
-                simPool -= simulatedSell * 0.9275;
-                // Burned supply = nominal / currentPrice
-                simSupply -= simulatedSell / currentPrice;
+            // Split simulation into 10 cycles (20 alternating buy/sell transactions)
+            const cycles = 10;
+            const buyStep = simulatedBuy / cycles;
+            const sellStep = simulatedSell / cycles;
+            
+            for (let i = 0; i < cycles; i++) {
+                // 1. Buy transaction
+                if (buyStep > 0) {
+                    const price = simPool / simSupply;
+                    const upoAdded = (buyStep * 0.9) / price;
+                    const poolAdded = buyStep * 0.9725; // 2.75% entry fee goes outside pool assets
+                    
+                    simPool += poolAdded;
+                    simSupply += upoAdded;
+                    positions.push({ nominal: buyStep, upo: upoAdded });
+                }
+                
+                // 2. Sell transaction
+                if (sellStep > 0) {
+                    let remainingSell = sellStep;
+                    let upoBurned = 0;
+                    
+                    // FIFO position closure
+                    while (remainingSell > 0 && positions.length > 0) {
+                        const oldest = positions[0];
+                        if (oldest.nominal <= remainingSell) {
+                            upoBurned += oldest.upo;
+                            remainingSell -= oldest.nominal;
+                            positions.shift();
+                        } else {
+                            const frac = remainingSell / oldest.nominal;
+                            upoBurned += oldest.upo * frac;
+                            oldest.upo -= oldest.upo * frac;
+                            oldest.nominal -= remainingSell;
+                            remainingSell = 0;
+                        }
+                    }
+                    
+                    // Fallback logic if user simulates selling more than they bought
+                    if (remainingSell > 0) {
+                        const price = simPool / simSupply;
+                        upoBurned += (remainingSell * 0.9) / price;
+                    }
+                    
+                    const poolSub = sellStep * 0.9275; // 7.25% exit fee retained in vault / pool assets
+                    simPool -= poolSub;
+                    simSupply -= upoBurned;
+                }
             }
             
             const predictedPrice = simPool / simSupply;
