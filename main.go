@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,10 +102,31 @@ func main() {
 	http.HandleFunc("/api/sync", handleSync)
 	http.HandleFunc("/api/live", handleLiveStream)
 
-	port := "8080"
-	log.Printf("UPOnly Server starting on http://localhost:%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	socketPath := os.Getenv("UNIX")
+	if socketPath != "" {
+		_ = os.Remove(socketPath)
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			log.Fatalf("Unix socket listener failed: %v", err)
+		}
+		defer os.Remove(socketPath)
+		if err := os.Chmod(socketPath, 0666); err != nil {
+			log.Printf("Could not change permissions to 0666 on unix:%s", socketPath)
+		}
+		log.Printf("Starting UpOnly server on unix:%s", socketPath)
+		if err := http.Serve(listener, nil); err != nil {
+			log.Fatalf("Server stopped: %v", err)
+		}
+	} else {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		addr := fmt.Sprintf(":%s", port)
+		log.Printf("Starting UpOnly server on http://localhost%s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Fatalf("Server failed: %v", err)
+		}
 	}
 }
 
