@@ -1240,10 +1240,19 @@
                         upoBurned += (remainingSell * 0.9) / price;
                     }
                     
-                    const poolSub = sellStep * 0.9275; // 7.25% exit fee retained in vault / pool assets
+                    const price = simPool / simSupply;
+                    const poolSub = (upoBurned * price) * 0.9275; // 7.25% exit fee retained in vault / pool assets
                     simPool -= poolSub;
                     simSupply -= upoBurned;
                 }
+            }
+
+            if (simSupply < 1000000) {
+                document.getElementById('predictedPrice').textContent = "INVALID";
+                const growthText = document.getElementById('predictedGrowth');
+                growthText.textContent = "Sells exceed unlockable supply (min 1M)";
+                growthText.style.color = 'var(--sell-color)';
+                return;
             }
             
             const predictedPrice = simPool / simSupply;
