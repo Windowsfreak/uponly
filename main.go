@@ -84,7 +84,9 @@ func main() {
 		time.Sleep(1 * time.Second)
 		if count, _ := getTxCount(); count == 0 {
 			log.Println("Database is empty. Importing historical transactions...")
-			importRawTransactions()
+			if !importRawTransactions() {
+				importFromRPC()
+			}
 			replayAllTransactions()
 		} else {
 			log.Printf("Database already contains %d transactions.", count)
@@ -467,7 +469,7 @@ type RawTxJSON struct {
 	} `json:"transaction"`
 }
 
-func importRawTransactions() {
+func importRawTransactions() bool {
 	// Search in scratch folder and local folder
 	scratchDir := "/Users/bjoern/.gemini/antigravity-ide/brain/3f640407-d805-4f39-830d-ecbc7ad20aa3/scratch"
 	filename := filepath.Join(scratchDir, "all_txs_raw.json")
@@ -475,7 +477,7 @@ func importRawTransactions() {
 		filename = "all_txs_raw.json"
 		if _, err := os.Stat(filename); os.IsNotExist(err) {
 			log.Println("Raw transaction cache file not found. Will start fresh from RPC.")
-			return
+			return false
 		}
 	}
 
@@ -483,7 +485,7 @@ func importRawTransactions() {
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Printf("Failed to open cache file: %v", err)
-		return
+		return false
 	}
 	defer file.Close()
 
@@ -491,7 +493,7 @@ func importRawTransactions() {
 	var rawMap map[string]interface{}
 	if err := json.Unmarshal(byteValue, &rawMap); err != nil {
 		log.Printf("Failed to parse cache JSON: %v", err)
-		return
+		return false
 	}
 
 	log.Printf("Importing %d signatures from cache...", len(rawMap))
@@ -539,6 +541,59 @@ func importRawTransactions() {
 	}
 
 	log.Printf("Successfully imported %d transactions. Final Price: %f (Pool: %f, Supply: %f)", txCount, pool/supply, pool, supply)
+	return true
+}
+
+func importFromRPC() {
+	log.Println("Starting historical sync from Solana RPC...")
+	var allSigs []string
+	before := ""
+	for {
+		log.Printf("Fetching page of signatures before: %s", before)
+		sigs := fetchSignaturesFromRPC(programAddress, before)
+		if len(sigs) == 0 {
+			break
+		}
+		for _, s := range sigs {
+			allSigs = append(allSigs, s.Signature)
+		}
+		before = sigs[len(sigs)-1].Signature
+		// If we get fewer than 100 results, we've hit the end (genesis)
+		if len(sigs) < 100 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond) // rate limit protection
+	}
+
+	log.Printf("Fetched %d signatures from RPC. Syncing details...", len(allSigs))
+	if len(allSigs) == 0 {
+		return
+	}
+
+	// Clear DB table first
+	db.Exec("DELETE FROM transactions")
+
+	// Fetch transaction details and insert chronologically (reverse order)
+	pool := 1000000.0
+	supply := 1000000.0
+	txCount := 0
+	
+	for i := len(allSigs) - 1; i >= 0; i-- {
+		sig := allSigs[i]
+		
+		log.Printf("Downloading transaction [%d/%d]: %s", len(allSigs)-i, len(allSigs), sig)
+		rawTx := fetchTransactionDetailFromRPC(sig)
+		if rawTx != nil {
+			parsed := parseRawTx(sig, *rawTx, &pool, &supply)
+			if parsed != nil {
+				insertTxToDB(*parsed)
+				txCount++
+			}
+		}
+		time.Sleep(200 * time.Millisecond) // rate limit protection
+	}
+	
+	log.Printf("Historical sync completed. Successfully imported %d transactions.", txCount)
 }
 
 func sortTxs(txs []struct {
